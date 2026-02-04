@@ -653,7 +653,7 @@ enmerkar==0.7.1
     #   enmerkar-underscore
 enmerkar-underscore==2.4.0
     # via -r requirements/edx/base.txt
-enterprise-integrated-channels==0.1.29
+enterprise-integrated-channels==0.1.38
     # via -r requirements/edx/base.txt
 event-tracking==3.3.0
     # via
@@ -1376,6 +1376,7 @@ snowflake-connector-python==4.2.0
     # via
     #   -r requirements/edx/base.txt
     #   edx-enterprise
+    #   enterprise-integrated-channels
 social-auth-app-django==5.4.1
     # via
     #   -c requirements/constraints.txt

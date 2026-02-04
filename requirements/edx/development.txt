@@ -876,7 +876,7 @@ enmerkar-underscore==2.4.0
     # via
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
-enterprise-integrated-channels==0.1.29
+enterprise-integrated-channels==0.1.38
     # via
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
@@ -1965,6 +1965,7 @@ snowflake-connector-python==4.2.0
     #   -r requirements/edx/doc.txt
     #   -r requirements/edx/testing.txt
     #   edx-enterprise
+    #   enterprise-integrated-channels
 social-auth-app-django==5.4.1
     # via
     #   -c requirements/constraints.txt

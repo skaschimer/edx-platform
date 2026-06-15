@@ -237,6 +237,10 @@ class ProviderConfig(ConfigurationModel):
         help_text="Use the presence of a profile from a trusted third party as proof of identity verification.",
     )
 
+    # Enterprise-only field: excludes this provider from the EnterpriseCustomer Django admin IDP
+    # dropdown. Added in ENT-1366 after social auth providers (Facebook, Google, etc.) were linked
+    # as enterprise IDPs, incorrectly associating all their users with an enterprise. Should ideally
+    # be migrated into the enterprise plugin.
     disable_for_enterprise_sso = models.BooleanField(
         default=False,
         verbose_name='Disabled for Enterprise TPA',
@@ -1057,6 +1061,10 @@ class AppleMigrationUserIdInfo(models.Model):
     """
     Model to store users' Apple Unique Identifier during migration
     process of Apple team from edx Inc. to edx LLC.
+
+    .. pii: Contains Apple user identifiers (old_apple_id, transfer_id, new_apple_id).
+    .. pii_types: external_service
+    .. pii_retirement: local_api
     """
     old_apple_id = models.CharField(max_length=255)
     transfer_id = models.CharField(max_length=255, null=True, blank=True)  # noqa: DJ001

@@ -10,8 +10,10 @@ from crum import set_current_request
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser, User  # pylint: disable=imported-auth-user
 from django.core.cache import cache
+from django.db import connection
 from django.db.models.functions import Lower
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from edx_toggles.toggles.testutils import override_waffle_flag
 from freezegun import freeze_time
 from opaque_keys.edx.keys import CourseKey
@@ -21,12 +23,14 @@ from common.djangoapps.course_modes.tests.factories import CourseModeFactory
 from common.djangoapps.student.models import (
     ALLOWEDTOENROLL_TO_ENROLLED,
     IS_MARKETABLE,
+    PENDING_SECONDARY_EMAIL_REDACTED_VALUE,
     AccountRecovery,
     CourseEnrollment,
     CourseEnrollmentAllowed,
     ManualEnrollmentAudit,
     PendingEmailChange,
     PendingNameChange,
+    PendingSecondaryEmailChange,
     UserAttribute,
     UserCelebration,
     UserProfile,
@@ -42,7 +46,7 @@ from openedx.core.djangoapps.content.course_overviews.models import CourseOvervi
 from openedx.core.djangoapps.content.course_overviews.tests.factories import CourseOverviewFactory
 from openedx.core.djangoapps.schedules.models import Schedule
 from openedx.core.djangoapps.user_api.preferences.api import set_user_preference
-from openedx.core.djangolib.testing.utils import skip_unless_lms
+from openedx.core.djangolib.testing.utils import assert_redact_before_delete, skip_unless_lms
 from xmodule.modulestore import ModuleStoreEnum  # pylint: disable=wrong-import-order
 from xmodule.modulestore.tests.django_utils import (  # pylint: disable=wrong-import-order
     ModuleStoreTestCase,
@@ -600,6 +604,22 @@ class PendingEmailChangeTests(SharedModuleStoreTestCase):
         assert not record_was_deleted
         assert 1 == len(PendingEmailChange.objects.all())
 
+    def test_delete_by_user_value_redacts_pending_email_before_deletion(self):
+        """
+        Verify that delete_by_user_value redacts new_email before deletion.
+        """
+        table = PendingEmailChange._meta.db_table
+        with CaptureQueriesContext(connection) as ctx:
+            record_was_deleted = PendingEmailChange.delete_by_user_value(self.user, field='user')
+
+        assert_redact_before_delete(
+            [q['sql'] for q in ctx],
+            table=table,
+            expected_redacted_value_list=['redacted-before-delete@safe.com'],
+        )
+        assert record_was_deleted
+        assert not PendingEmailChange.objects.filter(user=self.user).exists()
+
 
 class TestCourseEnrollmentAllowed(ModuleStoreTestCase):  # pylint: disable=missing-class-docstring
 
@@ -615,11 +635,18 @@ class TestCourseEnrollmentAllowed(ModuleStoreTestCase):  # pylint: disable=missi
         )
 
     def test_retiring_user_deletes_record(self):
-        is_successful = CourseEnrollmentAllowed.delete_by_user_value(
-            value=self.email,
-            field='email'
-        )
+        with CaptureQueriesContext(connection) as ctx:
+            is_successful = CourseEnrollmentAllowed.delete_by_user_value(
+                value=self.email,
+                field='email'
+            )
+
         assert is_successful
+        assert_redact_before_delete(
+            [q['sql'] for q in ctx],
+            table=CourseEnrollmentAllowed._meta.db_table,
+            expected_redacted_value_list=['redacted-before-delete@safe.com'],
+        )
         user_search_results = CourseEnrollmentAllowed.objects.filter(
             email=self.email
         )
@@ -733,18 +760,65 @@ class TestAccountRecovery(TestCase):
 
     def test_retire_recovery_email(self):
         """
-        Assert that Account Record for a given user is deleted when `retire_recovery_email` is called
+        Assert that AccountRecovery secondary_email is redacted before the record is deleted.
         """
-        # Create user and associated recovery email record
         user = UserFactory()
-        AccountRecoveryFactory(user=user)
+        AccountRecoveryFactory(user=user, secondary_email='recovery@example.com')
         assert len(AccountRecovery.objects.filter(user_id=user.id)) == 1
 
-        # Retire recovery email
-        AccountRecovery.retire_recovery_email(user_id=user.id)
+        with CaptureQueriesContext(connection) as ctx:
+            AccountRecovery.retire_recovery_email(user_id=user.id)
 
-        # Assert that there is no longer an AccountRecovery record for this user
+        assert_redact_before_delete(
+            [q['sql'] for q in ctx],
+            table=AccountRecovery._meta.db_table,
+            expected_redacted_value_list=[f'redact-before-delete+{user.id}@redacted.com'],
+        )
+
         assert len(AccountRecovery.objects.filter(user_id=user.id)) == 0
+
+    def test_retire_recovery_email_when_no_record(self):
+        """
+        Assert retirement cleanup returns False when no account recovery row exists.
+        """
+        user = UserFactory()
+        assert AccountRecovery.retire_recovery_email(user_id=user.id) is False
+
+
+class TestPendingSecondaryEmailChange(TestCase):
+    """
+    Tests for retiring PendingSecondaryEmailChange records.
+    """
+
+    def test_redact_and_delete_pending_secondary_email(self):
+        """
+        Assert that the pending secondary email is redacted before the record is deleted.
+        """
+        user = UserFactory()
+        PendingSecondaryEmailChange.objects.create(
+            user=user,
+            new_secondary_email='new-secondary@example.com',
+            activation_key='a' * 32,
+        )
+        assert len(PendingSecondaryEmailChange.objects.filter(user_id=user.id)) == 1
+
+        with CaptureQueriesContext(connection) as ctx:
+            PendingSecondaryEmailChange.redact_and_delete_pending_secondary_email(user_id=user.id)
+
+        assert_redact_before_delete(
+            [query['sql'] for query in ctx],
+            table=PendingSecondaryEmailChange._meta.db_table,
+            expected_redacted_value_list=[PENDING_SECONDARY_EMAIL_REDACTED_VALUE],
+        )
+
+        assert len(PendingSecondaryEmailChange.objects.filter(user_id=user.id)) == 0
+
+    def test_redact_and_delete_pending_secondary_email_when_no_record(self):
+        """
+        Assert retirement cleanup returns False when no pending secondary row exists.
+        """
+        user = UserFactory()
+        assert PendingSecondaryEmailChange.redact_and_delete_pending_secondary_email(user_id=user.id) is False
 
 
 @ddt.ddt

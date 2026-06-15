@@ -43,7 +43,6 @@ from xmodule.modulestore.django import modulestore  # pylint: disable=wrong-impo
 
 from ..storage import course_import_export_storage
 from ..tasks import CourseExportTask, CourseImportTask, export_olx, import_olx
-from ..toggles import use_new_export_page, use_new_import_page
 from ..utils import IMPORTABLE_FILE_TYPES, get_export_url, get_import_url, reverse_course_url, reverse_library_url
 
 __all__ = [
@@ -99,7 +98,7 @@ def import_handler(request, course_key_string):
             return _write_chunk(request, courselike_key)
     elif request.method == 'GET':  # assume html
 
-        if use_new_import_page(courselike_key) and not library:
+        if not library:
             return redirect(get_import_url(courselike_key))
         status_url = reverse_course_url(
             "import_status_handler", courselike_key, kwargs={'filename': "fillerName"}
@@ -358,7 +357,7 @@ def export_handler(request, course_key_string):
         export_olx.delay(request.user.id, course_key_string, request.LANGUAGE_CODE)
         return JsonResponse({'ExportStatus': 1})
     elif 'text/html' in requested_format:
-        if use_new_export_page(course_key) and not library:
+        if not library:
             return redirect(get_export_url(course_key))
         return render_to_response('export.html', context)
     else:

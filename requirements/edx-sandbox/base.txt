@@ -8,17 +8,17 @@ cffi==2.0.0
     # via cryptography
 chem==2.0.0
     # via -r requirements/edx-sandbox/base.in
-click==8.3.3
+click==8.4.1
     # via nltk
 codejail-includes==2.0.0
     # via -r requirements/edx-sandbox/base.in
 contourpy==1.3.3
     # via matplotlib
-cryptography==47.0.0
+cryptography==48.0.0
     # via -r requirements/edx-sandbox/base.in
 cycler==0.12.1
     # via matplotlib
-fonttools==4.62.1
+fonttools==4.63.0
     # via matplotlib
 joblib==1.5.3
     # via nltk
@@ -72,7 +72,7 @@ python-dateutil==2.9.0.post0
     # via matplotlib
 random2==1.0.2
     # via -r requirements/edx-sandbox/base.in
-regex==2026.4.4
+regex==2026.5.9
     # via nltk
 scipy==1.17.1
     # via
@@ -84,5 +84,5 @@ sympy==1.14.0
     # via
     #   -r requirements/edx-sandbox/base.in
     #   openedx-calc
-tqdm==4.67.3
+tqdm==4.68.1
     # via nltk

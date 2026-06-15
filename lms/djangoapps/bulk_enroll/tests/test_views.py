@@ -14,7 +14,8 @@ from django.urls import reverse
 from opaque_keys.edx.keys import CourseKey
 from rest_framework.test import APIRequestFactory, APITestCase, force_authenticate
 
-from common.djangoapps.student.models import (  # pylint: disable=line-too-long
+from common.djangoapps.student.models import (
+    ENROLLED_TO_ENROLLED,
     ENROLLED_TO_UNENROLLED,
     UNENROLLED_TO_ENROLLED,
     CourseEnrollment,
@@ -150,6 +151,9 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
                         {
                             "identifier": 'percivaloctavius@',
                             "invalidIdentifier": True,
+                            "success": False,
+                            "error_type": "invalid_identifier",
+                            "error_message": "Invalid email address",
                         }
                     ]
                 }
@@ -182,6 +186,9 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
                         {
                             "identifier": 'percivaloctavius',
                             "invalidIdentifier": True,
+                            "success": False,
+                            "error_type": "invalid_identifier",
+                            "error_message": "Invalid email address",
                         }
                     ]
                 }
@@ -224,7 +231,9 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
                                 "auto_enroll": False,
                                 "user": True,
                                 "allowed": False,
-                            }
+                            },
+                            "success": True,
+                            "state_transition": UNENROLLED_TO_ENROLLED,
                         }
                     ]
                 }
@@ -274,7 +283,9 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
                                 "auto_enroll": False,
                                 "user": True,
                                 "allowed": False,
-                            }
+                            },
+                            "success": True,
+                            "state_transition": UNENROLLED_TO_ENROLLED,
                         }
                     ]
                 }
@@ -328,7 +339,9 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
                                 "auto_enroll": False,
                                 "user": True,
                                 "allowed": False,
-                            }
+                            },
+                            "success": True,
+                            "state_transition": ENROLLED_TO_UNENROLLED,
                         }
                     ]
                 }
@@ -432,7 +445,9 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
                                 "user": True,
                                 "allowed": False,
                                 "cohort": 'cohort1',
-                            }
+                            },
+                            "success": True,
+                            "state_transition": UNENROLLED_TO_ENROLLED,
                         }
                     ]
                 }
@@ -446,7 +461,7 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
 
         assert res_json == expected
 
-    def test_readd_to_different_cohort(self):
+    def test_read_to_different_cohort(self):
         config_course_cohorts(self.course, is_cohorted=True, manual_cohorts=["cohort1", "cohort2"])
         response = self.request_bulk_enroll({
             'identifiers': self.notenrolled_student.username,
@@ -483,7 +498,9 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
                                 "user": True,
                                 "allowed": False,
                                 "cohort": 'cohort1',
-                            }
+                            },
+                            "success": True,
+                            "state_transition": UNENROLLED_TO_ENROLLED,
                         }
                     ]
                 }
@@ -531,7 +548,9 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
                                 "user": True,
                                 "allowed": False,
                                 "cohort": 'cohort2',
-                            }
+                            },
+                            "success": True,
+                            "state_transition": ENROLLED_TO_ENROLLED,
                         }
                     ]
                 }
@@ -541,7 +560,7 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
         assert get_cohort_id(self.notenrolled_student, CourseKey.from_string(self.course_key)) is not None
         assert res2_json == expected2
 
-    def test_readd_to_same_cohort(self):
+    def test_read_to_same_cohort(self):
         config_course_cohorts(self.course, is_cohorted=True, manual_cohorts=["cohort1", "cohort2"])
         response = self.request_bulk_enroll({
             'identifiers': self.notenrolled_student.username,
@@ -578,7 +597,9 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
                                 "user": True,
                                 "allowed": False,
                                 "cohort": 'cohort1',
-                            }
+                            },
+                            "success": True,
+                            "state_transition": UNENROLLED_TO_ENROLLED,
                         }
                     ]
                 }
@@ -627,7 +648,9 @@ class BulkEnrollmentTest(ModuleStoreTestCase, LoginEnrollmentTestCase, APITestCa
                                 "user": True,
                                 "allowed": False,
                                 "cohort": 'cohort1',
-                            }
+                            },
+                            "success": True,
+                            "state_transition": ENROLLED_TO_ENROLLED,
                         }
                     ]
                 }

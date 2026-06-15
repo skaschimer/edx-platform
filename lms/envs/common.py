@@ -339,9 +339,8 @@ SOCIAL_AUTH_CLEAN_USERNAMES = Derived(
 # Social auth pipeline for third-party authentication.
 # Operators can override SOCIAL_AUTH_PIPELINE directly in their settings
 # to customize the pipeline.
-# Note: The enterprise step (handle_enterprise_logistration) is inserted dynamically
-# during app initialization by third_party_auth's AppConfig.ready() if enterprise
-# is enabled. It cannot be included statically because it requires runtime checks.
+# Note: Enterprise pipeline steps (enterprise_associate_by_email, handle_enterprise_logistration)
+# are inserted dynamically via enterprise/settings/common.py plugin_settings().
 SOCIAL_AUTH_PIPELINE = [
     'common.djangoapps.third_party_auth.pipeline.parse_query_params',
     'social_core.pipeline.social_auth.social_details',
@@ -349,7 +348,6 @@ SOCIAL_AUTH_PIPELINE = [
     'social_core.pipeline.social_auth.auth_allowed',
     'social_core.pipeline.social_auth.social_user',
     'common.djangoapps.third_party_auth.pipeline.associate_by_email_if_login_api',
-    'common.djangoapps.third_party_auth.pipeline.associate_by_email_if_saml',
     'common.djangoapps.third_party_auth.pipeline.associate_by_email_if_oauth',
     'common.djangoapps.third_party_auth.pipeline.get_username',
     'common.djangoapps.third_party_auth.pipeline.set_pipeline_timeout',
@@ -3282,18 +3280,6 @@ RECAPTCHA_SITE_KEYS = {
 #     and is required for the reCAPTCHA service to function correctly.
 #     The project ID should be obtained from the Google Cloud Console when creating a reCAPTCHA
 RECAPTCHA_PROJECT_ID = None
-
-# .. setting_name: OPEN_EDX_FILTERS_CONFIG
-# .. setting_default: {}
-# .. setting_description: Configuration dict for openedx-filters pipeline steps.
-#    Keys are filter type strings; values are dicts with 'fail_silently' (bool) and
-#    'pipeline' (list of dotted-path strings to PipelineStep subclasses).
-OPEN_EDX_FILTERS_CONFIG = {
-    "org.openedx.learning.account.settings.read_only_fields.requested.v1": {
-        "fail_silently": True,
-        "pipeline": ["enterprise.filters.accounts.AccountSettingsReadOnlyFieldsStep"],
-    },
-}
 
 ############################## Miscellaneous ###############################
 

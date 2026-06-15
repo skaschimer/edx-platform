@@ -17,7 +17,12 @@ from opaque_keys.edx.keys import CourseKey, UsageKey
 from opaque_keys.edx.locator import LibraryContainerLocator
 from openedx_content.api import get_published_version
 from openedx_content.models_api import Component, Container
-from openedx_django_lib.fields import immutable_uuid_field, manual_date_time_field, ref_field
+
+try:
+    from openedx_django_lib.fields import immutable_uuid_field, manual_date_time_field, ref_field
+except ImportError:  # pragma: no cover - runtime compatibility shim for different openedx_django_lib versions
+    from openedx_django_lib.fields import immutable_uuid_field, manual_date_time_field
+    from openedx_django_lib.fields import key_field as ref_field
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +144,8 @@ class ComponentLink(EntityLinkBase):
     """
     This represents link between any two publishable entities or link between publishable entity and a course
     XBlock. It helps in tracking relationship between XBlocks imported from libraries and used in different courses.
+
+    .. no_pii:
     """
     upstream_block = models.ForeignKey(
         Component,
@@ -310,6 +317,8 @@ class ContainerLink(EntityLinkBase):
     """
     This represents link between any two publishable entities or link between publishable entity and a course
     xblock. It helps in tracking relationship between xblocks imported from libraries and used in different courses.
+
+    .. no_pii:
     """
     upstream_container = models.ForeignKey(
         Container,
@@ -556,6 +565,8 @@ class LearningContextLinksStatus(models.Model):
     """
     This table stores current processing status of upstream-downstream links in ComponentLink table for a
     course or a learning context.
+
+    .. no_pii:
     """
     context_key = CourseKeyField(
         # Single entry for a learning context or course

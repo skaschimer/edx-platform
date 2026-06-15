@@ -3,7 +3,7 @@ Unit tests for instructor API v2 endpoints.
 """
 import json
 from datetime import datetime, timedelta
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -12,6 +12,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.http import Http404
 from django.test import SimpleTestCase, override_settings
+from django.test.client import Client as DjangoClient
 from django.urls import NoReverseMatch, reverse
 from edx_when.api import set_date_for_block, set_dates_for_course
 from opaque_keys import InvalidKeyError
@@ -39,6 +40,7 @@ from lms.djangoapps.certificates.data import CertificateStatuses
 from lms.djangoapps.certificates.models import CertificateAllowlist, CertificateGenerationHistory
 from lms.djangoapps.certificates.tests.factories import GeneratedCertificateFactory
 from lms.djangoapps.courseware.models import StudentModule
+from lms.djangoapps.courseware.tests.helpers import MasqueradeMixin
 from lms.djangoapps.instructor.access import ROLE_DISPLAY_NAMES
 from lms.djangoapps.instructor.permissions import InstructorPermission
 from lms.djangoapps.instructor.views.serializers_v2 import CourseInformationSerializerV2
@@ -50,7 +52,7 @@ from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory
 
 
 @ddt.ddt
-class CourseMetadataViewTest(SharedModuleStoreTestCase):
+class CourseMetadataViewTest(SharedModuleStoreTestCase, MasqueradeMixin):
     """
     Tests for the CourseMetadataView API endpoint.
     """
@@ -340,29 +342,44 @@ class CourseMetadataViewTest(SharedModuleStoreTestCase):
         self.assertGreaterEqual(enrollment_counts['honor'], 1)  # noqa: PT009
         self.assertGreaterEqual(enrollment_counts['total'], 3)  # noqa: PT009
 
-    def test_enrollment_counts_excludes_unconfigured_modes(self):
+    def test_enrollment_counts_includes_unconfigured_modes_with_enrollments(self):
         """
-        Test that enrollment counts only include modes configured for the course,
-        not modes that exist on other courses.
+        Test that enrollment counts include modes with active enrollments even
+        when those modes are not explicitly configured for the course.
+
+        Regression test for https://github.com/openedx/frontend-app-instructor-dashboard/issues/210
+        The default enrollment mode (e.g. audit) may not be explicitly configured,
+        but learners can still be enrolled in it. The total must equal the sum of
+        all mode counts.
         """
-        # Only configure audit and honor for this course (not verified)
-        CourseModeFactory.create(course_id=self.course_key, mode_slug='audit')
+        # Only configure 'honor' for this course — do NOT configure 'audit'
         CourseModeFactory.create(course_id=self.course_key, mode_slug='honor')
+
+        # Explicitly create an enrollment in an unconfigured mode
+        CourseEnrollmentFactory.create(
+            user=UserFactory.create(),
+            course_id=self.course_key,
+            mode='audit',
+            is_active=True,
+        )
 
         self.client.force_authenticate(user=self.instructor)
         response = self.client.get(self._get_url())
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
+        assert response.status_code == status.HTTP_200_OK
         enrollment_counts = response.data['enrollment_counts']
 
-        # Only configured modes should appear
-        self.assertIn('audit', enrollment_counts)  # noqa: PT009
-        self.assertIn('honor', enrollment_counts)  # noqa: PT009
-        self.assertIn('total', enrollment_counts)  # noqa: PT009
+        # Configured mode must appear
+        assert 'honor' in enrollment_counts
+        # Unconfigured mode with enrollments must also appear
+        assert 'audit' in enrollment_counts
+        assert enrollment_counts['audit'] >= 1
+        # Total key must be present
+        assert 'total' in enrollment_counts
 
-        # verified is not configured, so it should not appear
-        # (even though there are verified enrollments from setUp)
-        self.assertNotIn('verified', enrollment_counts)  # noqa: PT009
+        # The sum of all mode counts must equal total
+        mode_sum = sum(v for k, v in enrollment_counts.items() if k != 'total')
+        assert enrollment_counts['total'] == mode_sum
 
     def _get_tabs_from_response(self, user, course_id=None):
         """Helper to get tabs from API response."""
@@ -638,6 +655,31 @@ class CourseMetadataViewTest(SharedModuleStoreTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # noqa: PT009
         self.assertEqual(response.data['pacing'], 'self')  # noqa: PT009
+
+    def test_masquerade_as_student_role_returns_403(self):
+        """
+        Test that the endpoint returns 403 when a staff user masquerades as a student role.
+        """
+        # Use Django's test Client for masquerade (MasqueradeMixin is incompatible with DRF APIClient)
+        original_client = self.client
+        self.client = DjangoClient()
+        self.client.login(username=self.staff.username, password='Password1234')
+        self.update_masquerade(course=self.course, role='student')
+        response = self.client.get(self._get_url())
+        self.client = original_client
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_masquerade_as_specific_student_returns_403(self):
+        """
+        Test that the endpoint returns 403 when a staff user masquerades as a specific student.
+        """
+        original_client = self.client
+        self.client = DjangoClient()
+        self.client.login(username=self.staff.username, password='Password1234')
+        self.update_masquerade(course=self.course, username=self.student.username)
+        response = self.client.get(self._get_url())
+        self.client = original_client
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 class BuildTabUrlTest(SimpleTestCase):
@@ -2192,6 +2234,135 @@ class IssuedCertificatesViewTest(SharedModuleStoreTestCase):
         assert results['student2']['certificate_status'] == 'audit_notpassing'
         assert results['student2']['special_case'] == 'Exception'
         assert results['student2']['exception_notes'] == 'Special case'
+
+
+class RegenerateCertificatesViewTest(SharedModuleStoreTestCase):
+    """
+    Tests for the RegenerateCertificatesView API endpoint.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.course = CourseFactory.create(
+            org='edX',
+            number='TestX',
+            run='Test_Course',
+            display_name='Test Course',
+        )
+        cls.course_key = cls.course.id
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        self.instructor = InstructorFactory.create(course_key=self.course_key)
+        self.student = UserFactory.create(username='student1', email='student1@example.com')
+
+        # Enroll student
+        CourseEnrollmentFactory.create(
+            user=self.student,
+            course_id=self.course_key,
+            mode='verified',
+            is_active=True
+        )
+
+    def _get_url(self, course_id=None):
+        """Helper to get the API URL."""
+        if course_id is None:
+            course_id = str(self.course_key)
+        return reverse('instructor_api_v2:regenerate_certificates', kwargs={'course_id': course_id})
+
+    @patch('lms.djangoapps.instructor.views.api_v2.task_api.generate_certificates_for_students')
+    def test_allowlisted_not_generated_passes_correct_student_set(self, mock_generate_certs):
+        """
+        Test that student_set='allowlisted_not_generated' is passed correctly to the task layer.
+
+        This test prevents future drift between the API layer and task layer if either
+        is renamed independently.
+        """
+        # Mock the task API to return a fake InstructorTask
+        mock_task = MagicMock()
+        mock_task.task_id = 'test-task-id-123'
+        mock_generate_certs.return_value = mock_task
+
+        # Authenticate and make the request
+        self.client.force_authenticate(user=self.instructor)
+        response = self.client.post(
+            self._get_url(),
+            data={'student_set': 'allowlisted_not_generated'},
+            format='json'
+        )
+
+        # Assert the response is successful
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['task_id'] == 'test-task-id-123'
+
+        # Assert the task API was called with the correct parameters
+        # Expected call signature: generate_certificates_for_students(request, course_key, student_set=...)
+        mock_generate_certs.assert_called_once()
+        call_args = mock_generate_certs.call_args
+        _, course_key_arg = call_args.args[:2]  # Unpack request and course_key positional args
+        assert course_key_arg == self.course_key
+        assert call_args.kwargs['student_set'] == 'allowlisted_not_generated'
+
+    @patch('lms.djangoapps.instructor.views.api_v2.task_api.generate_certificates_for_students')
+    def test_allowlisted_translates_to_all_allowlisted(self, mock_generate_certs):
+        """
+        Test that student_set='allowlisted' is translated to 'all_allowlisted' for the task layer.
+
+        This preserves the legacy translation from the pre-allowlist "whitelist" naming era.
+        """
+        # Mock the task API to return a fake InstructorTask
+        mock_task = MagicMock()
+        mock_task.task_id = 'test-task-id-456'
+        mock_generate_certs.return_value = mock_task
+
+        # Authenticate and make the request
+        self.client.force_authenticate(user=self.instructor)
+        response = self.client.post(
+            self._get_url(),
+            data={'student_set': 'allowlisted'},
+            format='json'
+        )
+
+        # Assert the response is successful
+        assert response.status_code == status.HTTP_200_OK
+
+        # Assert the task API was called with the translated value
+        mock_generate_certs.assert_called_once()
+        call_kwargs = mock_generate_certs.call_args.kwargs
+        assert call_kwargs['student_set'] == 'all_allowlisted'
+
+    @patch('lms.djangoapps.instructor.views.api_v2.task_api.generate_certificates_for_students')
+    def test_all_students_omits_student_set_kwarg(self, mock_generate_certs):
+        """
+        Test that student_set='all' calls the task layer without a student_set kwarg.
+
+        This ensures the default behavior (generate for all enrolled students) is preserved.
+        """
+        # Mock the task API to return a fake InstructorTask
+        mock_task = MagicMock()
+        mock_task.task_id = 'test-task-id-789'
+        mock_generate_certs.return_value = mock_task
+
+        # Authenticate and make the request with student_set='all'
+        self.client.force_authenticate(user=self.instructor)
+        response = self.client.post(
+            self._get_url(),
+            data={'student_set': 'all'},
+            format='json'
+        )
+
+        # Assert the response is successful
+        assert response.status_code == status.HTTP_200_OK
+
+        # Assert the task API was called without student_set kwarg
+        # Expected call signature: generate_certificates_for_students(request, course_key)
+        mock_generate_certs.assert_called_once()
+        call_args = mock_generate_certs.call_args
+        _, course_key_arg = call_args.args[:2]  # Unpack request and course_key positional args
+        assert course_key_arg == self.course_key
+        assert 'student_set' not in call_args.kwargs
 
 
 @ddt.ddt
